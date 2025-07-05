@@ -1,0 +1,102 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+#include <DHT.h>
+#include <ThingSpeak.h>  
+
+
+const char* ssid = "espwifi";
+const char* password = "sahasra19";
+
+
+const char* mqttServer = "mqtt3.thingspeak.com";
+const int mqttPort = 1883;
+const char* mqttClientID = "LwA2MDYqFwAjMg0jCQIEBRM";     
+const char* mqttUsername = "LwA2MDYqFwAjMg0jCQIEBRM";     
+const char* mqttPassword = "1fyZeYfXiDLH8k9Ri2zTuPHM";    
+const char* publishTopic = "channels/3001490/publish";   
+
+
+#define DHTPIN D4
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+int moisturePin = A0;   
+
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+
+unsigned long lastUploadTime = 0;
+const unsigned long uploadInterval = 15000; // 15 seconds
+
+void setupWiFi() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n WiFi connected!");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void reconnectMQTT() {
+  while (!client.connected()) {
+    Serial.print(" Connecting to MQTT...");
+    if (client.connect(mqttClientID, mqttUsername, mqttPassword)) {
+      Serial.println(" MQTT Connected!");
+    } else {
+      Serial.print(" Failed (rc=");
+      Serial.print(client.state());
+      Serial.println("), retrying in 5 sec...");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  setupWiFi();
+  client.setServer(mqttServer, mqttPort);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnectMQTT();
+  }
+  client.loop();
+
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+  int moistureValue = analogRead(moisturePin);  
+
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println(" Failed to read from DHT11 sensor!");
+    return;
+  }
+
+  Serial.print(" Temperature: ");
+  Serial.print(temperature);
+  Serial.print(" °C |  Humidity: ");
+  Serial.print(humidity);
+  Serial.print(" % |  Moisture: ");
+  Serial.println(moistureValue);
+
+  if (millis() - lastUploadTime >= uploadInterval) {
+    String payload = "field1=" + String(temperature, 2) +
+                     "&field2=" + String(humidity, 2) +
+                     "&field3=" + String(moistureValue);
+
+    if (client.publish(publishTopic, payload.c_str())) {
+      Serial.println("Data published to ThingSpeak via MQTT!");
+    } else {
+      Serial.println(" MQTT publish failed.");
+    }
+
+    lastUploadTime = millis();
+  }
+
+  delay(1000);
+}
